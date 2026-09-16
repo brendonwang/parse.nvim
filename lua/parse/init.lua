@@ -1,11 +1,12 @@
 local M = {}
 local config = require("parse.config")
 local generator = require("parse.generator")
-local handlers = require("parse.handlers")
+local handlers = require("parse.handler_registry")
 local server = require("parse.server")
 local util = require("parse.util")
 
 M.last = nil
+M.last_payload = nil
 
 local function open_source(path)
   if path and path ~= "" then
@@ -14,6 +15,8 @@ local function open_source(path)
 end
 
 function M.process(data)
+  M.last_payload = vim.deepcopy(data)
+
   handlers.route(data, function(spec, err)
     if not spec then
       if err ~= "cancelled" then
@@ -50,6 +53,14 @@ end
 
 function M.status()
   return server.status()
+end
+
+function M.register_handler(name, definition)
+  return handlers.register(name, definition)
+end
+
+function M.unregister_handler(name)
+  return handlers.unregister(name)
 end
 
 function M.setup(opts)
