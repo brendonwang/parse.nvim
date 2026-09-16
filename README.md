@@ -2,15 +2,16 @@
 
 Minimal Competitive Companion -> Neovim plumbing for my competitive-programming setup.
 
-It only does the useful part of the old Python receiver scripts:
+It keeps the useful part of the old Python receiver scripts:
 
 1. receive a Competitive Companion payload;
 2. route it through the parser I selected;
 3. create the C++ file if it does not exist;
-4. write/refresh the sample `.in` / `.out` files;
-5. open the source file in Neovim.
+4. create/update the directory `CMakeLists.txt` like the original `gen.py`;
+5. write/refresh the sample `.in` / `.out` files;
+6. open the source file in Neovim.
 
-There is no compiler runner, test UI, CMake generation, contest scaffolding, or compile database generation.
+There is no compiler runner, test UI, contest scaffolding, or compile database generation.
 
 ## Routing: manual by default
 
@@ -143,6 +144,22 @@ Normal handlers write samples using the old `gen.py` layout:
 `uva` naturally becomes `<root>/data/<problem>/...` because it has no `cur` folder. `oly` follows the old olympiad script and puts samples next to the source as `01.in`, `01.out`, etc.
 
 Existing source files are never overwritten. Re-sending a problem refreshes only numeric sample files.
+
+## CMakeLists.txt
+
+Generation follows the original `gen.py` behavior. For a handler whose `cur` is `Round_123`, the source directory contains:
+
+```cmake
+cmake_minimum_required(VERSION 3.27)
+project(Round_123)
+
+set(CMAKE_CXX_STANDARD 17)
+
+add_executable(Round_123a a.cpp)
+add_executable(Round_123b b.cpp)
+```
+
+The target prefix is exactly the old `cur.replace("/", "_")` convention. Existing `CMakeLists.txt` files are preserved and new `add_executable(...)` entries are appended only when missing, so receiving the same problem again does not create duplicate targets.
 
 ## Templates
 
