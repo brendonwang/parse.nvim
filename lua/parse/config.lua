@@ -30,6 +30,23 @@ M.defaults = {
     cf = nil,
     usaco = nil,
   },
+
+  cmake = {
+    minimum_version = "3.27",
+    cxx_standard = 17,
+    export_compile_commands = true,
+    configure = true,
+    build_dir = ".build",
+    link_compile_commands = true,
+    -- Optional function(default_name, spec) -> target name.
+    -- The returned name is sanitized before it is written to CMakeLists.txt.
+    target_name_formatter = nil,
+  },
+
+  -- Register new handlers or partially override built-ins. Set a handler to
+  -- false to disable it. See require("parse").register_handler() for the same
+  -- definition format at runtime.
+  handlers = {},
 }
 
 M.options = vim.deepcopy(M.defaults)
