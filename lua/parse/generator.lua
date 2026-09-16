@@ -4,6 +4,56 @@ local util = require("parse.util")
 
 local uv = vim.uv or vim.loop
 
+local function cmake_prefix(spec)
+  return (spec.cur or ""):gsub("/", "_"):gsub("\\", "_")
+end
+
+local function ensure_cmake(spec, problem_dir)
+  local path = util.join(problem_dir, "CMakeLists.txt")
+  local prefix = cmake_prefix(spec)
+  local project = prefix
+  if project == "" then
+    project = vim.fs.basename(spec.root) or "parse"
+  end
+
+  if not util.exists(path) then
+    local ok, err = util.write_file(
+      path,
+      string.format(
+        "cmake_minimum_required(VERSION 3.27)\nproject(%s)\n\nset(CMAKE_CXX_STANDARD 17)\n\n",
+        project
+      )
+    )
+    if not ok then
+      return nil, nil, err
+    end
+  end
+
+  return path, prefix
+end
+
+local function ensure_cmake_target(path, prefix, name)
+  local line = string.format("add_executable(%s%s %s.cpp)", prefix, name, name)
+  local content, err = util.read_file(path)
+  if not content then
+    return nil, err
+  end
+  if content:find(line, 1, true) then
+    return true
+  end
+
+  local file, open_err = io.open(path, "ab")
+  if not file then
+    return nil, open_err
+  end
+  if content ~= "" and content:sub(-1) ~= "\n" then
+    file:write("\n")
+  end
+  file:write(line .. "\n")
+  file:close()
+  return true
+end
+
 local function write_source(spec, problem_dir)
   local source = util.join(problem_dir, spec.name .. ".cpp")
   if util.exists(source) then
@@ -67,9 +117,19 @@ function M.generate(spec)
   local problem_dir = util.join(spec.root, spec.cur or "")
   util.mkdir(problem_dir)
 
+  local cmake, prefix, cmake_err = ensure_cmake(spec, problem_dir)
+  if not cmake then
+    return nil, cmake_err
+  end
+
   local source, err = write_source(spec, problem_dir)
   if not source then
     return nil, err
+  end
+
+  local ok, target_err = ensure_cmake_target(cmake, prefix, spec.name)
+  if not ok then
+    return nil, target_err
   end
 
   local test_dir = write_tests(spec, problem_dir)
@@ -77,6 +137,7 @@ function M.generate(spec)
     source = source,
     problem_dir = problem_dir,
     test_dir = test_dir,
+    cmake = cmake,
     tests = #(spec.tests or {}),
     handler = spec.handler,
     judge = spec.judge,
