@@ -36,7 +36,7 @@ function M.process(data)
     end
 
     M.last = result
-    util.notify(string.format("%s -> %s (%d samples)", result.handler or result.judge, result.source, result.tests))
+    util.notify(string.format("%s -> %s", result.handler or result.judge, result.source))
     if config.get().open_on_receive then
       open_source(result.source)
     end

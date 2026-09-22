@@ -38,10 +38,6 @@ local labels = {
 
 local handlers = {}
 
-local function tests(data)
-  return type(data.tests) == "table" and data.tests or {}
-end
-
 local function root_or_error(key)
   local root = config.root(key)
   if not root then
@@ -76,16 +72,14 @@ local function prompt_two(first_prompt, second_prompt, done)
   end)
 end
 
-local function make_spec(handler, root, cur, name, data, extra)
+local function make_spec(handler, root, cur, name, extra)
   return vim.tbl_extend("force", {
     handler = handler,
     judge = handler,
     root = root,
     cur = cur or "",
     name = name,
-    tests = tests(data),
     template = "cf",
-    test_layout = "data",
   }, extra or {})
 end
 
@@ -112,7 +106,7 @@ handlers.cf = function(data, done)
   cur = cur:gsub("Rated for ", "_")
   cur = cur:gsub(":", ""):gsub(",", ""):gsub(" ", "_"):gsub("!", "")
 
-  done(make_spec("cf", root, cur, name, data))
+  done(make_spec("cf", root, cur, name))
 end
 
 handlers.atcoder = function(data, done)
@@ -136,7 +130,7 @@ handlers.atcoder = function(data, done)
   for _, kind in ipairs(kinds) do
     local number = lower:match("atcoder%s+" .. kind.word .. "%s+contest%s+(%d+)")
     if number then
-      done(make_spec("atcoder", root, kind.prefix .. number, name, data))
+      done(make_spec("atcoder", root, kind.prefix .. number, name))
       return
     end
   end
@@ -146,16 +140,13 @@ handlers.atcoder = function(data, done)
       done(nil, prompt_err)
       return
     end
-    done(make_spec("atcoder", root, folder, name, data))
+    done(make_spec("atcoder", root, folder, name))
   end)
 end
 
 local function qoj_problem_id(data)
   local text = (data.url or "") .. " " .. (data.name or "")
-  return text:match("/problem/show/(%d+)")
-    or text:match("/problem/(%d+)")
-    or text:match("#?%s*(%d+)%s*[%.%)%-]")
-    or ""
+  return text:match("/problem/show/(%d+)") or text:match("/problem/(%d+)") or text:match("#?%s*(%d+)%s*[%.%)%-]") or ""
 end
 
 handlers.qoj = function(data, done)
@@ -174,7 +165,7 @@ handlers.qoj = function(data, done)
     name = id .. "_" .. name
   end
 
-  done(make_spec("qoj", root, "", name, data))
+  done(make_spec("qoj", root, "", name))
 end
 
 handlers.codechef = function(data, done)
@@ -197,7 +188,7 @@ handlers.codechef = function(data, done)
   cur = cur:gsub("Rated for ", "_")
   cur = cur:gsub(" ", "_")
 
-  done(make_spec("codechef", root, cur, name, data))
+  done(make_spec("codechef", root, cur, name))
 end
 
 local romans = {
@@ -239,7 +230,7 @@ handlers.cses = function(data, done)
       return
     end
     local name = replace_roman_words(data.name or "problem"):gsub(" ", "_")
-    done(make_spec("cses", root, topic, name, data))
+    done(make_spec("cses", root, topic, name))
   end)
 end
 
@@ -265,7 +256,7 @@ handlers.usaco = function(data, done)
   contest = contest:gsub("December", "dec"):gsub("January", "jan"):gsub("February", "feb")
   contest = contest:gsub(" ", "_")
 
-  done(make_spec("usaco", root, util.join("prev", division, contest), name, data, { template = "usaco" }))
+  done(make_spec("usaco", root, util.join("prev", division, contest), name, { template = "usaco" }))
 end
 
 handlers.uva = function(data, done)
@@ -279,7 +270,7 @@ handlers.uva = function(data, done)
   name = name:gsub(", ", ""):gsub(" ", "_"):gsub("_%-%_", "_")
   name = name:gsub("!", ""):gsub("%.", ""):gsub(",", ""):gsub("'", ""):gsub('"', "")
 
-  done(make_spec("uva", root, "", name, data))
+  done(make_spec("uva", root, "", name))
 end
 
 local function first_text(data, keys)
@@ -375,10 +366,12 @@ handlers.oly = function(data, done)
 
   local year_texts = vim.list_extend(vim.deepcopy(packages), { title, contest, source, url })
   local year = detect_ioi_year(year_texts)
-  local name = util.slugify(title ~= "" and title or (package_name ~= "" and package_name or (contest ~= "" and contest or "problem")))
+  local name = util.slugify(
+    title ~= "" and title or (package_name ~= "" and package_name or (contest ~= "" and contest or "problem"))
+  )
   local cur = year and util.join("IOI", "IOI" .. year, name) or util.join("IOI", "IOI", name)
 
-  done(make_spec("oly", root, cur, name, data, { test_layout = "inline" }))
+  done(make_spec("oly", root, cur, name))
 end
 
 local function class_handler(id, folder_prefix, second_label)
@@ -394,7 +387,7 @@ local function class_handler(id, folder_prefix, second_label)
         done(nil, prompt_err)
         return
       end
-      done(make_spec(id, root, folder_prefix .. slot, name, data))
+      done(make_spec(id, root, folder_prefix .. slot, name))
     end)
   end
 end
@@ -416,7 +409,7 @@ handlers.camp = function(data, done)
       done(nil, prompt_err)
       return
     end
-    done(make_spec("camp", root, "XC_603SummerCamp2026/Day_" .. day, name, data))
+    done(make_spec("camp", root, "XC_603SummerCamp2026/Day_" .. day, name))
   end)
 end
 

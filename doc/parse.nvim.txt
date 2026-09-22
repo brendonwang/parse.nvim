@@ -3,9 +3,9 @@
 ===============================================================================
 INTRODUCTION                                                     *parse.nvim*
 
-parse.nvim receives Competitive Companion payloads and writes a source file plus
-sample test data using explicitly selected handlers based on the author's old
-Python receiver scripts.
+parse.nvim receives Competitive Companion payloads and creates source files and
+CMake targets using explicitly selected handlers. Testcase payloads are ignored;
+existing testcase files are never changed.
 
 Routing is manual by default. Automatic judge detection is opt-in.
 
@@ -28,6 +28,26 @@ COMMANDS                                                   *parse.nvim-commands*
 
 :ParseStatus
     Show listener and parser state.
+
+:ParseNew [cf|usaco] [name]                                    *:ParseNew*
+    Create and open a new C++ file from the CF or USACO template in the current
+    buffer's directory, or the working directory for an unnamed buffer.
+    Adds .cpp if omitted; prompts if no name is given. Without an explicit
+    template, uses the active handler's template (CF by default).
+    Uses configured templates, then <base_dir>/algo/library/template_cf.cpp or
+    template_usaco.cpp, then bundled templates. Adds a CMake target and uses
+    the normal configure settings. Existing files are refused. Cancelling the
+    prompt has no effect. Names must be plain filenames, not paths.
+
+    Examples: :ParseNew cf a
+              :ParseNew usaco gates.cpp
+              :ParseNew cf
+
+:ParseContest <names|range|count>
+    Create sources and CMake targets from names, a range (a-f), or a count (10).
+
+:ParseLast
+    Inspect the most recently received payload in a scratch buffer.
 
 ===============================================================================
 CONFIGURATION                                                 *parse.nvim-opts*

@@ -8,11 +8,11 @@ It keeps the useful part of the old Python receiver scripts:
 2. route it through the parser I selected;
 3. create the C++ file if it does not exist;
 4. create/update the directory `CMakeLists.txt` like the original `gen.py`;
-5. write/refresh the sample `.in` / `.out` files;
-6. configure CMake/`compile_commands.json` for clangd;
-7. open the source file in Neovim.
+5. configure CMake/`compile_commands.json` for clangd;
+6. open the source file in Neovim.
 
-Test execution and sample-test UI are intentionally left to `cph.nvim`.
+Testcases in incoming payloads are ignored. The plugin does not create, refresh,
+delete, run, or display testcase files. Existing testcase files are left untouched.
 
 ## Routing: manual by default
 
@@ -59,7 +59,7 @@ These correspond to the original Flask receiver scripts:
 | `cses` | `cses.py` | Prompts for topic; Roman numeral conversion |
 | `usaco` | `usaco.py` | `prev/<division>/<contest>` layout and USACO template |
 | `uva` | `uva.py` | UVA filename cleanup and flat source layout |
-| `oly` | `oly.py` | IOI/oj.uz payload routing and inline `01.in`, `01.out`, ... samples |
+| `oly` | `oly.py` | IOI/oj.uz problem naming and directory routing |
 | `603` | `603.py` | Prompts for week + name; `XC_603_2026` |
 | `603p` | `603p.py` | Prompts for week + name; `XC_603P_2026` |
 | `camp` | `camp.py` | Prompts for name + day; `XC_603SummerCamp2026` |
@@ -86,7 +86,6 @@ opts = {
           root = "/path/to/luogu",
           cur = data.group or "misc",
           name = data.name or "problem",
-          tests = data.tests or {},
           template = "cf",
         })
       end,
@@ -114,7 +113,7 @@ require("parse").unregister_handler("luogu")
 
 - Neovim >= 0.11.2
 - Competitive Companion
-- CMake is optional; source/test generation still works without it
+- CMake is optional; source generation still works without it
 
 No Python or Flask dependency is required.
 
@@ -159,14 +158,8 @@ roots = {
 }
 ```
 
-Normal handlers write samples using the old `gen.py` layout:
-
-```text
-<root>/data/<cur>/<problem>/1.in
-<root>/data/<cur>/<problem>/1.out
-```
-
-Existing source files are never overwritten. Re-sending a problem refreshes only numeric sample files.
+Existing source files are never overwritten. Re-sending a problem repairs missing
+CMake targets without changing existing source or testcase files.
 
 ## CMake and clangd
 
@@ -179,6 +172,7 @@ cmake = {
   export_compile_commands = true,
   configure = true,
   build_dir = ".build",
+  configure_args = {}, -- e.g. { "-DCMAKE_CXX_COMPILER=/path/to/g++" }
   link_compile_commands = true,
   target_name_formatter = nil,
 }
@@ -208,9 +202,30 @@ cmake = {
 }
 ```
 
+## New file from a template
+
+Create and open a fresh C++ source in the current buffer's directory (or the
+working directory when there is no named buffer):
+
+```vim
+:ParseNew cf a
+:ParseNew usaco gates.cpp
+:ParseNew cf
+:ParseNew
+```
+
+The `.cpp` extension is added if omitted. With no filename, a prompt opens;
+without an explicit template, the active handler selects the template (`usaco`
+for USACO, otherwise `cf`). For example, `:ParseNew a` uses that default.
+Cancelling the prompt changes nothing. Existing files are refused, never replaced.
+Use a plain filename, not a directory path.
+
+This uses the same configured/personal CF and USACO templates described below,
+and adds the file to CMake through the existing project-generation workflow.
+
 ## Contest scaffolding
 
-`:ParseContest` creates source files and CMake targets in the current buffer's directory without creating sample data. It uses the active handler's template convention (`usaco` gets the USACO template; everything else defaults to the CF template).
+`:ParseContest` creates source files and CMake targets in the current buffer's directory. It uses the active handler's template convention (`usaco` gets the USACO template; everything else defaults to the CF template).
 
 Examples:
 
@@ -264,11 +279,12 @@ and then uses its bundled fallback templates.
 :ParseStatus
 :ParseLast
 :ParseContest <names|range|count>
+:ParseNew [cf|usaco] [name]
 ```
 
 ## Tests
 
-The repository contains headless regression tests for built-in routing, handler overrides, CMake generation, target sanitization, duplicate prevention, and contest-name expansion:
+The repository contains headless regression tests for built-in routing, handler overrides, CMake generation, target sanitization, duplicate prevention, contest-name expansion, ignored testcase payloads, and new-file template selection:
 
 ```sh
 nvim --headless -u NONE -l tests/run.lua

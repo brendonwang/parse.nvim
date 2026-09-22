@@ -65,8 +65,7 @@ local function expand_problem_tokens(tokens)
 
   if #tokens == 1 then
     local token = tokens[1]:lower()
-    local count = tonumber(token)
-      or tonumber(token:match("^first[:=%-]?(%d+)$"))
+    local count = tonumber(token) or tonumber(token:match("^first[:=%-]?(%d+)$"))
     if count then
       if count < 1 or count % 1 ~= 0 then
         return nil, "problem count must be a positive integer"
@@ -112,6 +111,9 @@ local function expand_problem_tokens(tokens)
 end
 
 local function current_directory()
+  if vim.bo.buftype ~= "" then
+    return vim.fn.getcwd()
+  end
   local path = vim.api.nvim_buf_get_name(0)
   if path ~= "" then
     local stat = (vim.uv or vim.loop).fs_stat(path)
@@ -160,13 +162,15 @@ function M.setup()
 
   create("ParseStatus", function()
     local status = server.status()
-    util.notify(string.format(
-      "%s - http://%s:%d - parser: %s",
-      status.running and "running" or "stopped",
-      status.host,
-      status.port,
-      handlers.label(handlers.current())
-    ))
+    util.notify(
+      string.format(
+        "%s - http://%s:%d - parser: %s",
+        status.running and "running" or "stopped",
+        status.host,
+        status.port,
+        handlers.label(handlers.current())
+      )
+    )
   end)
 
   create("ParseLast", function()
@@ -177,6 +181,52 @@ function M.setup()
     end
     open_scratch("parse://last-payload.json", payload_lines(payload), "json")
   end)
+
+  create("ParseNew", function(cmd)
+    local args = vim.deepcopy(cmd.fargs)
+    local template = handlers.template(handlers.current())
+    if args[1] == "cf" or args[1] == "usaco" then
+      template = table.remove(args, 1)
+    end
+    if #args > 1 then
+      util.notify("Usage: ParseNew [cf|usaco] [name]", vim.log.levels.ERROR)
+      return
+    end
+
+    local directory = current_directory()
+    local function create_file(value)
+      if not value or vim.trim(value) == "" then
+        return
+      end
+      local name = vim.trim(value):gsub("%.cpp$", "")
+      if not name:match("^[%w_][%w_.+%-]*$") then
+        util.notify("Use a filename in the current directory, such as a or a.cpp", vim.log.levels.ERROR)
+        return
+      end
+      local path = util.join(directory, name .. ".cpp")
+      if (vim.uv or vim.loop).fs_lstat(path) then
+        util.notify("File already exists: " .. path, vim.log.levels.WARN)
+        return
+      end
+      local results, err = generator.scaffold(directory, { name }, { template = template })
+      if not results then
+        util.notify("Could not create file: " .. tostring(err), vim.log.levels.ERROR)
+        return
+      end
+      vim.cmd("edit " .. vim.fn.fnameescape(results[1].source))
+    end
+
+    if args[1] then
+      create_file(args[1])
+    else
+      vim.ui.input({ prompt = "New C++ file (" .. template .. "): " }, create_file)
+    end
+  end, {
+    nargs = "*",
+    complete = function(_, line)
+      return line:match("^%s*ParseNew%s+%S*$") and { "cf", "usaco" } or {}
+    end,
+  })
 
   create("ParseContest", function(cmd)
     local names, err = expand_problem_tokens(cmd.fargs)

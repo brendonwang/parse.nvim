@@ -108,42 +108,6 @@ local function write_source(spec, problem_dir)
   return source
 end
 
-local function clear_samples(path)
-  if not util.is_dir(path) then
-    return
-  end
-  local scan = uv.fs_scandir(path)
-  if not scan then
-    return
-  end
-
-  while true do
-    local name, kind = uv.fs_scandir_next(scan)
-    if not name then
-      break
-    end
-    local is_sample = name:match("^%d+%.in$") or name:match("^%d+%.out$")
-    if kind == "file" and is_sample then
-      os.remove(util.join(path, name))
-    end
-  end
-end
-
-local function write_tests(spec, problem_dir)
-  local inline = spec.test_layout == "inline"
-  local test_dir = inline and problem_dir or util.join(spec.root, "data", spec.cur or "", spec.name)
-  util.mkdir(test_dir)
-  clear_samples(test_dir)
-
-  for i, test in ipairs(spec.tests or {}) do
-    local stem = inline and string.format("%02d", i) or tostring(i)
-    util.write_file(util.join(test_dir, stem .. ".in"), test.input or "")
-    util.write_file(util.join(test_dir, stem .. ".out"), test.output or "")
-  end
-
-  return test_dir
-end
-
 local function link_compile_commands(problem_dir, build_dir)
   local cmake = config.get().cmake
   if not cmake.link_compile_commands then
@@ -175,14 +139,16 @@ function M.configure(problem_dir)
   end
 
   local build_dir = cmake.build_dir or ".build"
-  vim.system({
+  local command = {
     "cmake",
     "-S",
     ".",
     "-B",
     build_dir,
     "-DCMAKE_EXPORT_COMPILE_COMMANDS=ON",
-  }, { cwd = problem_dir, text = true }, function(result)
+  }
+  vim.list_extend(command, cmake.configure_args or {})
+  vim.system(command, { cwd = problem_dir, text = true }, function(result)
     vim.schedule(function()
       if result.code ~= 0 then
         util.notify("CMake configure failed: " .. vim.trim(result.stderr or ""), vim.log.levels.WARN)
@@ -194,8 +160,7 @@ function M.configure(problem_dir)
   return true
 end
 
-local function generate_one(spec, opts)
-  opts = opts or {}
+local function generate_one(spec)
   if not spec or not spec.root or not spec.name then
     return nil, "invalid generation spec"
   end
@@ -218,18 +183,11 @@ local function generate_one(spec, opts)
     return nil, target_err
   end
 
-  local test_dir = nil
-  if not opts.skip_tests then
-    test_dir = write_tests(spec, problem_dir)
-  end
-
   return {
     source = source,
     problem_dir = problem_dir,
-    test_dir = test_dir,
     cmake = cmake,
     target = target,
-    tests = #(spec.tests or {}),
     handler = spec.handler,
     judge = spec.judge,
     name = spec.name,
@@ -263,10 +221,9 @@ function M.scaffold(problem_dir, names, opts)
       cur = cur,
       name = name,
       template = opts.template or "cf",
-      tests = {},
       handler = "scaffold",
       judge = "scaffold",
-    }, { skip_tests = true })
+    })
     if not result then
       return nil, err
     end
