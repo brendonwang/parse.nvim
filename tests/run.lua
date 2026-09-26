@@ -183,6 +183,59 @@ do
   eq(occurrences, 1, "CMake target should not be duplicated")
 end
 
+-- compile_commands.json is published once at base_dir and merged across problem directories.
+do
+  config.setup({
+    base_dir = tmp,
+    auto_start = false,
+    open_on_receive = false,
+    cmake = {
+      build_dir = ".build",
+      link_compile_commands = true,
+      configure = false,
+    },
+  })
+
+  local first = util.join(tmp, "contests", "one")
+  local second = util.join(tmp, "contests", "two")
+  util.mkdir(util.join(first, ".build"))
+  util.mkdir(util.join(second, ".build"))
+
+  assert(util.write_file(
+    util.join(first, ".build", "compile_commands.json"),
+    vim.json.encode({
+      {
+        directory = first,
+        file = "a.cpp",
+        command = "c++ -c a.cpp",
+      },
+    })
+  ))
+  assert(generator._publish_compile_commands(first, ".build"))
+
+  local root_db = util.join(tmp, "compile_commands.json")
+  truthy(util.exists(root_db), "root compile_commands.json missing")
+  truthy(not util.exists(util.join(first, "compile_commands.json")), "problem directory compile_commands.json created")
+
+  assert(util.write_file(
+    util.join(second, ".build", "compile_commands.json"),
+    vim.json.encode({
+      {
+        directory = second,
+        file = "b.cpp",
+        command = "c++ -c b.cpp",
+      },
+    })
+  ))
+  assert(generator._publish_compile_commands(second, ".build"))
+
+  local merged = vim.json.decode(assert(util.read_file(root_db)))
+  eq(#merged, 2, "root compile_commands.json should merge problem directories")
+  eq(merged[1].file, "a.cpp", "first compile command")
+  eq(merged[2].file, "b.cpp", "second compile command")
+  truthy(not util.exists(util.join(second, "compile_commands.json")), "second problem directory compile_commands.json created")
+end
+
 -- Contest problem expansion.
 do
   local names = assert(commands.expand_problem_tokens({ "a-f" }))
