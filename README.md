@@ -190,7 +190,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 add_executable(Round_123a a.cpp)
 ```
 
-After generation, if CMake is installed, the plugin runs a configure step in `.build`. It then symlinks `.build/compile_commands.json` to the source directory when possible. Existing non-symlink `compile_commands.json` files are left untouched.
+After generation, if CMake is installed, the plugin runs a configure step in each problem directory's `.build`. It then merges the generated entries into a single `<base_dir>/compile_commands.json` for clangd. It does not create `compile_commands.json` files inside individual contest/problem directories.
 
 CMake target names are sanitized automatically. You can customize them before sanitization:
 
