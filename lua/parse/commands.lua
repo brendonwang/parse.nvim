@@ -162,10 +162,11 @@ function M.setup()
 
   create("ParseStatus", function()
     local status = server.status()
+    local state = status.running and "running" or status.handoff_pending and "taking over" or "stopped"
     util.notify(
       string.format(
         "%s - http://%s:%d - parser: %s",
-        status.running and "running" or "stopped",
+        state,
         status.host,
         status.port,
         handlers.label(handlers.current())

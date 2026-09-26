@@ -4,6 +4,8 @@ local util = require("parse.util")
 
 local uv = vim.uv or vim.loop
 local server = nil
+local handoff_pending = false
+local handoff_client = nil
 
 local status_text = {
   [200] = "OK",
@@ -59,6 +61,21 @@ local function handle_request(client, raw)
 
   if method == "OPTIONS" then
     finish(client, 204, "")
+    return
+  end
+
+  if method == "POST" and path == "/__takeover" then
+    local peer = client:getpeername()
+    local ip = peer and peer.ip or ""
+    if ip ~= "127.0.0.1" and ip ~= "::1" and not ip:match("^::ffff:127%.") then
+      finish(client, 403, vim.json.encode({ status = "error" }))
+      return
+    end
+    finish(client, 202, vim.json.encode({ status = "taking_over" }))
+    vim.schedule(function()
+      M.stop()
+      util.notify("Listener handed off to another Neovim instance")
+    end)
     return
   end
 
@@ -134,12 +151,7 @@ local function attach_client(client)
   end)
 end
 
-function M.start()
-  if server and not server:is_closing() then
-    return true
-  end
-
-  local opts = config.get()
+local function bind(opts)
   local tcp = uv.new_tcp()
   local ok_bind, bind_err = pcall(tcp.bind, tcp, opts.host, opts.port)
   if not ok_bind then
@@ -175,7 +187,123 @@ function M.start()
   return true
 end
 
+local function stop_handoff()
+  handoff_pending = false
+  if handoff_client then
+    pcall(handoff_client.read_stop, handoff_client)
+    if not handoff_client:is_closing() then
+      handoff_client:close()
+    end
+    handoff_client = nil
+  end
+end
+
+local function retry_bind(opts, attempts)
+  if not handoff_pending then
+    return
+  end
+  local ok, err = bind(opts)
+  if ok then
+    stop_handoff()
+    util.notify("Listener moved to this Neovim instance")
+    return
+  end
+  if attempts >= 20 then
+    stop_handoff()
+    util.notify("Could not take over parse.nvim listener: " .. tostring(err), vim.log.levels.ERROR)
+    return
+  end
+  -- ponytail: simultaneous handoffs are first-bind-wins; add a shared lock if they become common.
+  vim.defer_fn(function()
+    retry_bind(opts, attempts + 1)
+  end, 50)
+end
+
+local function request_handoff(opts)
+  if handoff_pending then
+    return true
+  end
+  handoff_pending = true
+  local client = uv.new_tcp()
+  handoff_client = client
+  local host = (opts.host == "0.0.0.0" or opts.host == "::") and "127.0.0.1" or opts.host
+  client:connect(host, opts.port, function(err)
+    if not handoff_pending then
+      return
+    end
+    if err then
+      retry_bind(opts, 0)
+      return
+    end
+    local response_buffer = ""
+    client:read_start(function(read_err, chunk)
+      if not handoff_pending then
+        return
+      end
+      if read_err or not chunk then
+        stop_handoff()
+        util.notify(
+          "Could not hand off parse.nvim listener" .. (read_err and (": " .. tostring(read_err)) or ""),
+          vim.log.levels.ERROR
+        )
+        return
+      end
+      response_buffer = response_buffer .. chunk
+      local status = response_buffer:match("^HTTP/1%.1 (%d%d%d)")
+      if not status then
+        return
+      end
+      pcall(client.read_stop, client)
+      if not client:is_closing() then
+        client:close()
+      end
+      handoff_client = nil
+      if status ~= "202" then
+        stop_handoff()
+        util.notify("The port is occupied by a service that is not parse.nvim", vim.log.levels.ERROR)
+        return
+      end
+      retry_bind(opts, 0)
+    end)
+    client:write(table.concat({
+      "POST /__takeover HTTP/1.1",
+      "Host: " .. host .. ":" .. tostring(opts.port),
+      "Content-Length: 0",
+      "Connection: close",
+      "",
+      "",
+    }, "\r\n"))
+    vim.defer_fn(function()
+      if handoff_pending then
+        stop_handoff()
+        util.notify("Timed out requesting parse.nvim listener handoff", vim.log.levels.ERROR)
+      end
+    end, 2000)
+  end)
+  return true
+end
+
+function M.start()
+  if server and not server:is_closing() then
+    return true
+  end
+  if handoff_pending then
+    return true
+  end
+
+  local opts = config.get()
+  local ok, err = bind(opts)
+  if ok then
+    return true
+  end
+  if err:find("EADDRINUSE", 1, true) or err:lower():find("address already in use", 1, true) then
+    return request_handoff(opts)
+  end
+  return nil, err
+end
+
 function M.stop()
+  stop_handoff()
   if server and not server:is_closing() then
     server:close()
   end
@@ -190,6 +318,7 @@ function M.status()
   local opts = config.get()
   return {
     running = M.running(),
+    handoff_pending = handoff_pending,
     host = opts.host,
     port = opts.port,
   }
