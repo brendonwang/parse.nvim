@@ -108,28 +108,111 @@ local function write_source(spec, problem_dir)
   return source
 end
 
-local function link_compile_commands(problem_dir, build_dir)
+local function compile_entry_key(entry)
+  if type(entry) ~= "table" or type(entry.file) ~= "string" or entry.file == "" then
+    return nil
+  end
+
+  local file = entry.file
+  if not util.is_abs(file) and type(entry.directory) == "string" and entry.directory ~= "" then
+    file = util.join(entry.directory, file)
+  end
+  return vim.fs.normalize(file)
+end
+
+local function decode_compile_commands(content)
+  if not content or vim.trim(content) == "" then
+    return {}
+  end
+
+  local ok, decoded = pcall(vim.json.decode, content)
+  if not ok or type(decoded) ~= "table" or not vim.islist(decoded) then
+    return nil
+  end
+  return decoded
+end
+
+local function publish_compile_commands(problem_dir, build_dir)
   local cmake = config.get().cmake
   if not cmake.link_compile_commands then
-    return
+    return true
   end
 
   local source = util.join(problem_dir, build_dir, "compile_commands.json")
-  local destination = util.join(problem_dir, "compile_commands.json")
   if not util.exists(source) then
-    return
+    return true
   end
 
+  local source_content, source_err = util.read_file(source)
+  if not source_content then
+    return nil, source_err
+  end
+  local incoming = decode_compile_commands(source_content)
+  if not incoming then
+    return nil, "CMake produced an invalid compile_commands.json"
+  end
+
+  local root = config.base_dir() or problem_dir
+  local destination = util.join(root, "compile_commands.json")
+  local existing = {}
   local stat = uv.fs_lstat(destination)
-  if stat and stat.type ~= "link" then
-    return
-  end
-  if stat then
+
+  -- Older versions created per-directory symlinks. A root symlink is also safe
+  -- to replace because parse.nvim itself owns symlink destinations.
+  if stat and stat.type == "link" then
     os.remove(destination)
+    stat = nil
   end
 
-  local relative = util.join(build_dir, "compile_commands.json")
-  uv.fs_symlink(relative, destination)
+  if stat then
+    local content, read_err = util.read_file(destination)
+    if not content then
+      return nil, read_err
+    end
+    existing = decode_compile_commands(content)
+    if not existing then
+      return nil, "refusing to overwrite invalid root compile_commands.json"
+    end
+  end
+
+  local by_file = {}
+  local keys = {}
+  local function add(entries)
+    for _, entry in ipairs(entries) do
+      local key = compile_entry_key(entry)
+      if key then
+        if not by_file[key] then
+          table.insert(keys, key)
+        end
+        by_file[key] = entry
+      end
+    end
+  end
+
+  add(existing)
+  add(incoming)
+  table.sort(keys)
+
+  local merged = {}
+  for _, key in ipairs(keys) do
+    table.insert(merged, by_file[key])
+  end
+
+  local ok, write_err = util.write_file(destination, vim.json.encode(merged) .. "\n")
+  if not ok then
+    return nil, write_err
+  end
+
+  -- Clean up the legacy visible symlink in the problem directory if present.
+  local legacy = util.join(problem_dir, "compile_commands.json")
+  if legacy ~= destination then
+    local legacy_stat = uv.fs_lstat(legacy)
+    if legacy_stat and legacy_stat.type == "link" then
+      os.remove(legacy)
+    end
+  end
+
+  return true
 end
 
 function M.configure(problem_dir)
@@ -154,7 +237,10 @@ function M.configure(problem_dir)
         util.notify("CMake configure failed: " .. vim.trim(result.stderr or ""), vim.log.levels.WARN)
         return
       end
-      link_compile_commands(problem_dir, build_dir)
+      local published, publish_err = publish_compile_commands(problem_dir, build_dir)
+      if not published then
+        util.notify("Could not update root compile_commands.json: " .. tostring(publish_err), vim.log.levels.WARN)
+      end
     end)
   end)
   return true
@@ -235,5 +321,6 @@ function M.scaffold(problem_dir, names, opts)
 end
 
 M.sanitize_cmake_name = sanitize_cmake_name
+M._publish_compile_commands = publish_compile_commands
 
 return M
