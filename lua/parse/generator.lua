@@ -89,6 +89,123 @@ local function ensure_cmake_target(path, spec, prefix)
   return true, target
 end
 
+local function relative_to_root(root, path)
+  root = vim.fs.normalize(root):gsub("/+$", "")
+  path = vim.fs.normalize(path)
+  if path == root then
+    return ""
+  end
+
+  local prefix = root .. "/"
+  if path:sub(1, #prefix) ~= prefix then
+    return nil
+  end
+  return path:sub(#prefix + 1)
+end
+
+local function cmake_path_arg(path)
+  path = path:gsub("\\", "/")
+  if path:find("[%s%(%)\";]") then
+    return '"' .. path:gsub('"', '\\"') .. '"'
+  end
+  return path
+end
+
+local function update_root_subdirectory(path, problem_dir, project_root)
+  local relative = relative_to_root(project_root, problem_dir)
+  if relative == nil then
+    return nil, "problem directory is outside its CMake root"
+  end
+  if relative == "" then
+    return true
+  end
+
+  local wanted = "add_subdirectory(" .. cmake_path_arg(relative) .. ")"
+  local content, err = util.read_file(path)
+  if not content then
+    return nil, err
+  end
+
+  local lines = vim.split(content, "\n", { plain = true })
+  local last_active = nil
+  for i, line in ipairs(lines) do
+    if not line:match("^%s*#") and line:match("^%s*add_subdirectory%s*%b()%s*$") then
+      last_active = i
+    end
+  end
+
+  if last_active then
+    lines[last_active] = wanted
+  else
+    if #lines > 0 and lines[#lines] ~= "" then
+      table.insert(lines, "")
+    end
+    table.insert(lines, wanted)
+  end
+
+  -- If the same directory already appeared earlier, keep only the most recent
+  -- active entry. Commented historical entries are left untouched.
+  local keep = nil
+  for i, line in ipairs(lines) do
+    if vim.trim(line) == wanted and not line:match("^%s*#") then
+      keep = i
+    end
+  end
+  if keep then
+    for i = #lines, 1, -1 do
+      if i ~= keep and vim.trim(lines[i]) == wanted and not lines[i]:match("^%s*#") then
+        table.remove(lines, i)
+        if i < keep then
+          keep = keep - 1
+        end
+      end
+    end
+  end
+
+  local updated = table.concat(lines, "\n")
+  local ok, write_err = util.write_file(path, updated)
+  if not ok then
+    return nil, write_err
+  end
+  return true
+end
+
+local function ensure_root_cmake(spec, problem_dir)
+  local project_root = util.expand(spec.root)
+  local path = util.join(project_root, "CMakeLists.txt")
+
+  -- Flat layouts (for example QOJ) already use the root CMakeLists.txt as the
+  -- problem CMakeLists.txt, so there is no subdirectory to register.
+  if vim.fs.normalize(project_root) == vim.fs.normalize(problem_dir) then
+    return path, project_root
+  end
+
+  if not util.exists(path) then
+    local cmake = config.get().cmake
+    local project = sanitize_cmake_name(vim.fs.basename(project_root), "parse")
+    local export = cmake.export_compile_commands and "set(CMAKE_EXPORT_COMPILE_COMMANDS ON)\n" or ""
+    local ok, err = util.write_file(
+      path,
+      string.format(
+        "cmake_minimum_required(VERSION %s)\nproject(%s)\n\nset(CMAKE_CXX_STANDARD %s)\n%s",
+        tostring(cmake.minimum_version),
+        project,
+        tostring(cmake.cxx_standard),
+        export
+      )
+    )
+    if not ok then
+      return nil, nil, err
+    end
+  end
+
+  local ok, err = update_root_subdirectory(path, problem_dir, project_root)
+  if not ok then
+    return nil, nil, err
+  end
+  return path, project_root
+end
+
 local function write_source(spec, problem_dir)
   local source = util.join(problem_dir, spec.name .. ".cpp")
   if util.exists(source) then
@@ -238,13 +355,13 @@ local function publish_compile_commands(problem_dir, build_dir)
   return true
 end
 
-function M.configure(problem_dir)
+function M.configure(project_root)
   local cmake = config.get().cmake
   if not cmake.configure or vim.fn.executable("cmake") ~= 1 then
     return false
   end
 
-  local build_dir = cmake.build_dir or ".build"
+  local build_dir = cmake.build_dir or "out"
   local command = {
     "cmake",
     "-S",
@@ -254,13 +371,13 @@ function M.configure(problem_dir)
     "-DCMAKE_EXPORT_COMPILE_COMMANDS=ON",
   }
   vim.list_extend(command, cmake.configure_args or {})
-  vim.system(command, { cwd = problem_dir, text = true }, function(result)
+  vim.system(command, { cwd = project_root, text = true }, function(result)
     vim.schedule(function()
       if result.code ~= 0 then
         util.notify("CMake configure failed: " .. vim.trim(result.stderr or ""), vim.log.levels.WARN)
         return
       end
-      local published, publish_err = publish_compile_commands(problem_dir, build_dir)
+      local published, publish_err = publish_compile_commands(project_root, build_dir)
       if not published then
         util.notify("Could not update root compile_commands.json: " .. tostring(publish_err), vim.log.levels.WARN)
       end
@@ -292,6 +409,11 @@ local function generate_one(spec)
     return nil, target_err
   end
 
+  local root_cmake, project_root, root_err = ensure_root_cmake(spec, problem_dir)
+  if not root_cmake then
+    return nil, root_err
+  end
+
   -- The original gen.py only called gen_data() when the source file was newly
   -- created. Re-importing an existing problem therefore leaves testcase edits
   -- untouched, which is useful when cph.nvim owns testcase editing afterwards.
@@ -305,7 +427,9 @@ local function generate_one(spec)
   return {
     source = source,
     problem_dir = problem_dir,
+    project_root = project_root,
     cmake = cmake,
+    root_cmake = root_cmake,
     target = target,
     handler = spec.handler,
     judge = spec.judge,
@@ -318,7 +442,7 @@ function M.generate(spec)
   if not result then
     return nil, err
   end
-  M.configure(result.problem_dir)
+  M.configure(result.project_root)
   return result
 end
 
@@ -349,7 +473,7 @@ function M.scaffold(problem_dir, names, opts)
     table.insert(results, result)
   end
 
-  M.configure(problem_dir)
+  M.configure(results[1].project_root)
   return results
 end
 
