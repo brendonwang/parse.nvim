@@ -3,9 +3,11 @@
 ===============================================================================
 INTRODUCTION                                                     *parse.nvim*
 
-parse.nvim receives Competitive Companion payloads and creates source files and
-CMake targets using explicitly selected handlers. Testcase payloads are ignored;
-existing testcase files are never changed.
+parse.nvim receives Competitive Companion payloads and creates source files,
+CMake targets, and numbered sample files using explicitly selected handlers.
+Samples use the original gen.py layout under <root>/data/<cur>/<problem>/ and
+are written only when the source file is first created. Re-importing an existing
+problem leaves testcase files unchanged. parse.nvim does not run the samples.
 
 Routing is manual by default. Automatic judge detection is opt-in.
 
