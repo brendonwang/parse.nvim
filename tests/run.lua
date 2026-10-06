@@ -183,57 +183,74 @@ do
   eq(occurrences, 1, "CMake target should not be duplicated")
 end
 
--- compile_commands.json is published once at base_dir and merged across problem directories.
+-- The handler root keeps one active add_subdirectory entry for the latest problem directory.
 do
+  local class_root = util.join(tmp, "USACO_Classes")
+  util.mkdir(class_root)
+  assert(util.write_file(
+    util.join(class_root, "CMakeLists.txt"),
+    table.concat({
+      "cmake_minimum_required(VERSION 3.24)",
+      "project(USACO_Classes)",
+      "",
+      "set(CMAKE_CXX_STANDARD 17)",
+      "",
+      "#add_subdirectory(XC_603P/Week_13)",
+      "add_subdirectory(Mock_Silver/Test_10)",
+      "add_subdirectory(XC_603_2026/Week_8)",
+      "",
+    }, "\n")
+  ))
+
   config.setup({
     base_dir = tmp,
     auto_start = false,
     open_on_receive = false,
     cmake = {
-      build_dir = ".build",
+      build_dir = "out",
       link_compile_commands = true,
       configure = false,
     },
   })
 
-  local first = util.join(tmp, "contests", "one")
-  local second = util.join(tmp, "contests", "two")
-  util.mkdir(util.join(first, ".build"))
-  util.mkdir(util.join(second, ".build"))
+  local first = assert(generator.generate({
+    root = class_root,
+    cur = util.join("XC_603_2026", "Week_11"),
+    name = "binary_tree_on_plane",
+    template = "cf",
+    handler = "603",
+    judge = "603",
+  }))
 
-  assert(util.write_file(
-    util.join(first, ".build", "compile_commands.json"),
-    vim.json.encode({
-      {
-        directory = first,
-        file = "a.cpp",
-        command = "c++ -c a.cpp",
-      },
-    })
-  ))
-  assert(generator._publish_compile_commands(first, ".build"))
+  eq(first.project_root, class_root, "handler root should be the CMake project root")
+  local root_cmake = assert(util.read_file(util.join(class_root, "CMakeLists.txt")))
+  contains(root_cmake, "add_subdirectory(Mock_Silver/Test_10)", "older root subdirectory should be preserved")
+  contains(root_cmake, "add_subdirectory(XC_603_2026/Week_11)", "latest root subdirectory should be updated")
+  truthy(not root_cmake:find("add_subdirectory(XC_603_2026/Week_8)", 1, true), "previous latest subdirectory was not replaced")
+  contains(root_cmake, "#add_subdirectory(XC_603P/Week_13)", "commented root subdirectory should be preserved")
 
-  local root_db = util.join(tmp, "compile_commands.json")
-  truthy(util.exists(root_db), "root compile_commands.json missing")
-  truthy(not util.exists(util.join(first, "compile_commands.json")), "problem directory compile_commands.json created")
+  local child_cmake = assert(util.read_file(util.join(class_root, "XC_603_2026", "Week_11", "CMakeLists.txt")))
+  contains(child_cmake, "project(XC_603_2026_Week_11)", "child CMake project")
+  contains(
+    child_cmake,
+    "add_executable(XC_603_2026_Week_11binary_tree_on_plane binary_tree_on_plane.cpp)",
+    "child target"
+  )
 
-  assert(util.write_file(
-    util.join(second, ".build", "compile_commands.json"),
-    vim.json.encode({
-      {
-        directory = second,
-        file = "b.cpp",
-        command = "c++ -c b.cpp",
-      },
-    })
-  ))
-  assert(generator._publish_compile_commands(second, ".build"))
-
-  local merged = vim.json.decode(assert(util.read_file(root_db)))
-  eq(#merged, 2, "root compile_commands.json should merge problem directories")
-  eq(merged[1].file, "a.cpp", "first compile command")
-  eq(merged[2].file, "b.cpp", "second compile command")
-  truthy(not util.exists(util.join(second, "compile_commands.json")), "second problem directory compile_commands.json created")
+  local second = assert(generator.generate({
+    root = class_root,
+    cur = util.join("XC_603_2026", "Week_12"),
+    name = "next_problem",
+    template = "cf",
+    handler = "603",
+    judge = "603",
+  }))
+  eq(second.project_root, class_root, "second handler root")
+  root_cmake = assert(util.read_file(util.join(class_root, "CMakeLists.txt")))
+  contains(root_cmake, "add_subdirectory(XC_603_2026/Week_12)", "latest subdirectory should move forward")
+  truthy(not root_cmake:find("add_subdirectory(XC_603_2026/Week_11)", 1, true), "active subdirectories stacked up")
+  truthy(not util.exists(util.join(class_root, "XC_603_2026", "Week_11", "out")), "child out directory created")
+  truthy(not util.exists(util.join(class_root, "XC_603_2026", "Week_12", "out")), "second child out directory created")
 end
 
 -- Contest problem expansion.
