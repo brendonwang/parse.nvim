@@ -184,7 +184,7 @@ cmake = {
   cxx_standard = 17,
   export_compile_commands = true,
   configure = true,
-  build_dir = ".build",
+  build_dir = "out",
   configure_args = {}, -- e.g. { "-DCMAKE_CXX_COMPILER=/path/to/g++" }
   link_compile_commands = true,
   target_name_formatter = nil,
@@ -203,7 +203,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 add_executable(Round_123a a.cpp)
 ```
 
-After generation, if CMake is installed, the plugin runs a configure step in each problem directory's `.build`. It then merges the generated entries into a single `<base_dir>/compile_commands.json` for clangd. It does not create `compile_commands.json` files inside individual contest/problem directories.
+Each generated problem directory keeps its own `CMakeLists.txt`. The handler root `CMakeLists.txt` points at the current problem directory with `add_subdirectory(...)`; parse.nvim replaces the most recent active `add_subdirectory(...)` entry instead of appending one on every import. If CMake is installed, the plugin configures that root project into `<root>/out` and publishes compile commands to the configured base directory for clangd.
 
 CMake target names are sanitized automatically. You can customize them before sanitization:
 
