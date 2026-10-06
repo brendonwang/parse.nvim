@@ -92,20 +92,43 @@ end
 local function write_source(spec, problem_dir)
   local source = util.join(problem_dir, spec.name .. ".cpp")
   if util.exists(source) then
-    return source
+    return source, false
   end
 
   local template = config.template(spec.template or "cf")
   local content = template and util.read_file(template) or nil
   if not content then
-    return nil, "could not read template for " .. tostring(spec.template or "cf")
+    return nil, nil, "could not read template for " .. tostring(spec.template or "cf")
   end
 
   local ok, err = util.write_file(source, content)
   if not ok then
-    return nil, err
+    return nil, nil, err
   end
-  return source
+  return source, true
+end
+
+local function write_tests(spec)
+  local test_dir = util.join(spec.root, "data", spec.cur or "", spec.name)
+  util.mkdir(test_dir)
+
+  -- Preserve the original gen.py behavior: write/overwrite only the numbered
+  -- cases present in the payload and leave any higher-numbered files alone.
+  for i, test in ipairs(spec.tests) do
+    local stem = tostring(i)
+
+    local ok, err = util.write_file(util.join(test_dir, stem .. ".in"), test.input or "")
+    if not ok then
+      return nil, err
+    end
+
+    ok, err = util.write_file(util.join(test_dir, stem .. ".out"), test.output or "")
+    if not ok then
+      return nil, err
+    end
+  end
+
+  return test_dir
 end
 
 local function compile_entry_key(entry)
@@ -259,7 +282,7 @@ local function generate_one(spec)
     return nil, cmake_err
   end
 
-  local source, err = write_source(spec, problem_dir)
+  local source, created, err = write_source(spec, problem_dir)
   if not source then
     return nil, err
   end
@@ -267,6 +290,16 @@ local function generate_one(spec)
   local ok, target, target_err = ensure_cmake_target(cmake, spec, prefix)
   if not ok then
     return nil, target_err
+  end
+
+  -- The original gen.py only called gen_data() when the source file was newly
+  -- created. Re-importing an existing problem therefore leaves testcase edits
+  -- untouched, which is useful when cph.nvim owns testcase editing afterwards.
+  if created and type(spec.tests) == "table" then
+    local _, test_err = write_tests(spec)
+    if test_err then
+      return nil, test_err
+    end
   end
 
   return {
