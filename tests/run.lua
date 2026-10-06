@@ -276,7 +276,7 @@ do
   contains(cmake, "add_executable(Contestc c.cpp)", "c target")
 end
 
--- Incoming samples are ignored, including legacy inline/data layouts.
+-- Incoming samples use the original gen.py data layout.
 do
   require("parse").setup({
     base_dir = tmp,
@@ -286,38 +286,33 @@ do
     cmake = { configure = false },
   })
   local payload = {
-    name = "A. Ignored samples",
+    name = "A. Sample files",
     group = "Codeforces Round 456",
-    tests = { { input = "new input", output = "new output" } },
+    tests = {
+      { input = "first input\n", output = "first output\n" },
+      { input = "second input\n", output = "second output\n" },
+    },
   }
   local spec = route("cf", payload)
-  eq(spec.tests, nil, "handler must not carry testcase data")
-  eq(spec.test_layout, nil, "handler must not carry testcase layout")
+  eq(spec.tests, nil, "routing should stay independent of testcase payloads")
+
   require("parse").process(payload)
   local result = assert(require("parse").last)
-  eq(result.tests, nil, "generation must not report sample counts")
-  eq(result.test_dir, nil, "generation must not expose a testcase directory")
-  truthy(not util.exists(util.join(spec.root, "data")), "import created a data directory")
+  local data_dir = util.join(spec.root, "data", spec.cur, spec.name)
+  eq(util.read_file(util.join(data_dir, "1.in")), "first input\n", "first sample input")
+  eq(util.read_file(util.join(data_dir, "1.out")), "first output\n", "first sample output")
+  eq(util.read_file(util.join(data_dir, "2.in")), "second input\n", "second sample input")
+  eq(util.read_file(util.join(data_dir, "2.out")), "second output\n", "second sample output")
 
-  local old_input = util.join(spec.root, "data", spec.cur, spec.name, "1.in")
-  local old_output = util.join(spec.root, "data", spec.cur, spec.name, "1.out")
-  assert(util.write_file(old_input, "keep input"))
-  assert(util.write_file(old_output, "keep output"))
+  -- gen.py only called gen_data() when it successfully created the source file.
+  -- Re-importing an existing problem therefore preserves edited testcase files.
+  assert(util.write_file(util.join(data_dir, "1.in"), "keep input"))
+  assert(util.write_file(util.join(data_dir, "1.out"), "keep output"))
   assert(util.write_file(result.source, "// keep my solution"))
   require("parse").process(payload)
-  eq(util.read_file(old_input), "keep input", "reimport changed existing input")
-  eq(util.read_file(old_output), "keep output", "reimport changed existing output")
+  eq(util.read_file(util.join(data_dir, "1.in")), "keep input", "reimport changed existing input")
+  eq(util.read_file(util.join(data_dir, "1.out")), "keep output", "reimport changed existing output")
   eq(util.read_file(result.source), "// keep my solution", "reimport changed solution")
-
-  local olympiad = route("oly", { name = "Task", group = "IOI 2024", tests = payload.tests })
-  local inline = assert(generator.generate(olympiad))
-  truthy(not util.exists(util.join(inline.problem_dir, "01.in")), "Olympiad import wrote samples")
-  local old_inline = util.join(inline.problem_dir, "01.in")
-  assert(util.write_file(old_inline, "keep inline"))
-  -- Custom handlers returning the old fields must not reactivate sample handling.
-  olympiad.tests, olympiad.test_layout = payload.tests, "inline"
-  assert(generator.generate(olympiad))
-  eq(util.read_file(old_inline), "keep inline", "legacy inline data changed")
 end
 
 -- New-file command: personal/configured templates, prompts, validation, no overwrite.
