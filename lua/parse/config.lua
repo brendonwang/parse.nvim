@@ -36,7 +36,7 @@ M.defaults = {
     cxx_standard = 17,
     export_compile_commands = true,
     configure = true,
-    build_dir = ".build",
+    build_dir = "out",
     configure_args = {}, -- Extra arguments for the CMake configure invocation.
     link_compile_commands = true,
     -- Optional function(default_name, spec) -> target name.
