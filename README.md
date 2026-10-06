@@ -8,11 +8,14 @@ It keeps the useful part of the old Python receiver scripts:
 2. route it through the parser I selected;
 3. create the C++ file if it does not exist;
 4. create/update the directory `CMakeLists.txt` like the original `gen.py`;
-5. configure CMake/`compile_commands.json` for clangd;
-6. open the source file in Neovim.
+5. write Competitive Companion samples using the original `gen.py` data layout;
+6. configure CMake/`compile_commands.json` for clangd;
+7. open the source file in Neovim.
 
-Testcases in incoming payloads are ignored. The plugin does not create, refresh,
-delete, run, or display testcase files. Existing testcase files are left untouched.
+On first import, testcase payloads are written as numbered `.in` / `.out` files
+under `<root>/data/<cur>/<problem>/`. parse.nvim does not run or display those
+tests; that remains the job of tools such as cph.nvim. Re-sending an existing
+problem leaves its source and testcase files untouched.
 
 ## Routing: manual by default
 
@@ -113,7 +116,7 @@ require("parse").unregister_handler("luogu")
 
 - Neovim >= 0.11.2
 - Competitive Companion
-- CMake is optional; source generation still works without it
+- CMake is optional; source and sample generation still work without it
 
 No Python or Flask dependency is required.
 
@@ -158,8 +161,18 @@ roots = {
 }
 ```
 
-Existing source files are never overwritten. Re-sending a problem repairs missing
-CMake targets without changing existing source or testcase files.
+Incoming samples use the same layout as the original Python `gen.py`:
+
+```text
+<root>/data/<cur>/<problem>/1.in
+<root>/data/<cur>/<problem>/1.out
+<root>/data/<cur>/<problem>/2.in
+<root>/data/<cur>/<problem>/2.out
+```
+
+Sample files are written when the source is first created. Existing source files
+are never overwritten, and re-sending a problem repairs missing CMake targets
+without changing existing source or testcase files.
 
 ## CMake and clangd
 
@@ -284,7 +297,7 @@ and then uses its bundled fallback templates.
 
 ## Tests
 
-The repository contains headless regression tests for built-in routing, handler overrides, CMake generation, target sanitization, duplicate prevention, contest-name expansion, ignored testcase payloads, and new-file template selection:
+The repository contains headless regression tests for built-in routing, handler overrides, CMake generation, target sanitization, duplicate prevention, contest-name expansion, testcase data generation, and new-file template selection:
 
 ```sh
 nvim --headless -u NONE -l tests/run.lua
