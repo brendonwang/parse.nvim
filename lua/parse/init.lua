@@ -25,6 +25,12 @@ function M.process(data)
       return
     end
 
+    -- Match the original Python receivers: pass Competitive Companion samples
+    -- through to gen.py-style generation after judge-specific routing.
+    if type(data.tests) == "table" then
+      spec.tests = data.tests
+    end
+
     local ok, result, generation_err = pcall(generator.generate, spec)
     if not ok then
       util.notify("Generation failed: " .. tostring(result), vim.log.levels.ERROR)
