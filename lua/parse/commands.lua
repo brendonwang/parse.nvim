@@ -1,4 +1,5 @@
 local M = {}
+local config = require("parse.config")
 local handlers = require("parse.handler_registry")
 local generator = require("parse.generator")
 local server = require("parse.server")
@@ -108,6 +109,32 @@ local function expand_problem_tokens(tokens)
     return nil, "no problem names provided"
   end
   return names
+end
+
+local function parse_contest_args(args)
+  local directory, tokens = nil, {}
+  local i = 1
+  while i <= #args do
+    local arg = args[i]
+    if arg == "--dir" or arg == "-d" then
+      if directory then return nil, "specify --dir only once" end
+      directory = args[i + 1]
+      if not directory or directory == "" then
+        return nil, "Usage: ParseContest [--dir path] <names|range|count>"
+      end
+      i = i + 1
+    elseif arg:match("^%-%-dir=") then
+      if directory then return nil, "specify --dir only once" end
+      directory = arg:sub(7)
+      if directory == "" then return nil, "missing --dir path" end
+    else
+      table.insert(tokens, arg)
+    end
+    i = i + 1
+  end
+  local names, err = expand_problem_tokens(tokens)
+  if not names then return nil, err end
+  return { directory = directory, names = names }
 end
 
 local function current_directory()
@@ -230,15 +257,26 @@ function M.setup()
   })
 
   create("ParseContest", function(cmd)
-    local names, err = expand_problem_tokens(cmd.fargs)
-    if not names then
+    local request, err = parse_contest_args(cmd.fargs)
+    if not request then
       util.notify(err, vim.log.levels.ERROR)
       return
     end
 
     local problem_dir = current_directory()
-    local results, generation_err = generator.scaffold(problem_dir, names, {
+    local project_root
+    if request.directory then
+      -- An explicit directory is relative to BASE_DIR, not the active buffer.
+      project_root = config.base_dir() or problem_dir
+      project_root = vim.fs.normalize(vim.fn.fnamemodify(project_root, ":p"))
+      problem_dir = util.is_abs(request.directory) and util.expand(request.directory)
+        or util.join(project_root, request.directory)
+    end
+
+    local results, generation_err = generator.scaffold(problem_dir, request.names, {
       template = handlers.template(handlers.current()),
+      project_root = project_root,
+      subdirectory_mode = project_root and "append" or nil,
     })
     if not results then
       util.notify("Contest scaffold failed: " .. tostring(generation_err), vim.log.levels.ERROR)
@@ -255,6 +293,7 @@ function M.setup()
 end
 
 M.expand_problem_tokens = expand_problem_tokens
+M.parse_contest_args = parse_contest_args
 M.alpha_name = alpha_name
 
 return M
