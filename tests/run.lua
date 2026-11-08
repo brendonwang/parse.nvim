@@ -267,6 +267,15 @@ do
   names = assert(commands.expand_problem_tokens({ "a", "c", "x-y" }))
   eq(names, { "a", "c", "x", "y" }, "explicit/range expansion")
 
+  local parsed = assert(commands.parse_contest_args({ "--dir", "contests/abc", "a-f" }))
+  eq(parsed.directory, "contests/abc", "directory parsing")
+  eq(parsed.names, { "a", "b", "c", "d", "e", "f" }, "directory problem range")
+  parsed = assert(commands.parse_contest_args({ "first", "2", "--dir=contests/xyz" }))
+  eq(parsed.directory, "contests/xyz", "directory suffix parsing")
+  eq(parsed.names, { "a", "b" }, "first count with --dir")
+  truthy(not commands.parse_contest_args({ "--dir", "contests/a" }), "missing contest names accepted")
+  truthy(not commands.parse_contest_args({ "--dir", "a", "--dir", "b", "c" }), "duplicate dir accepted")
+
   eq(commands.alpha_name(26), "z", "26th alphabetic name")
   eq(commands.alpha_name(27), "aa", "27th alphabetic name")
 end
@@ -291,6 +300,59 @@ do
   contains(cmake, "add_executable(Contesta a.cpp)", "a target")
   contains(cmake, "add_executable(Contestb b.cpp)", "b target")
   contains(cmake, "add_executable(Contestc c.cpp)", "c target")
+end
+
+-- Explicit contest directories live under the base and register in its CMakeLists.
+do
+  config.setup({
+    base_dir = tmp,
+    auto_start = false,
+    open_on_receive = false,
+    cmake = { minimum_version = "3.20", configure = false },
+  })
+  registry.setup("cf")
+  commands.setup()
+
+  local root_cmake_path = util.join(tmp, "CMakeLists.txt")
+  local old_dir = util.join(tmp, "existing_contest")
+  util.mkdir(old_dir)
+  assert(util.write_file(util.join(old_dir, "CMakeLists.txt"), "# existing contest\n"))
+  assert(util.write_file(
+    root_cmake_path,
+    "cmake_minimum_required(VERSION 3.20)\nproject(Base)\n\nadd_subdirectory(existing_contest)\n"
+  ))
+
+  vim.cmd("enew")
+  vim.cmd("ParseContest --dir contests/week_1 a-c")
+  local first_dir = util.join(tmp, "contests", "week_1")
+  eq(vim.api.nvim_buf_get_name(0), util.join(first_dir, "a.cpp"), "first file opened")
+  truthy(util.exists(util.join(first_dir, "b.cpp")), "second source")
+  truthy(util.exists(util.join(first_dir, "c.cpp")), "third source")
+  local child = assert(util.read_file(util.join(first_dir, "CMakeLists.txt")))
+  contains(child, "add_executable(contests_week_1a a.cpp)", "nested CMake target")
+  contains(child, "add_executable(contests_week_1b b.cpp)", "nested second target")
+
+  -- Working buffer now lives in week_1, but paths must still use BASE_DIR.
+  vim.cmd("ParseContest first 2 --dir contests/week_2")
+  truthy(util.exists(util.join(tmp, "contests", "week_2", "a.cpp")), "second contest location")
+  local cmake = assert(util.read_file(root_cmake_path))
+  contains(cmake, "add_subdirectory(existing_contest)", "existing root CMake entry")
+  contains(cmake, "add_subdirectory(contests/week_1)", "first root entry")
+  contains(cmake, "add_subdirectory(contests/week_2)", "second root entry")
+
+  vim.cmd("ParseContest -d contests/week_1 a-c")
+  cmake = assert(util.read_file(root_cmake_path))
+  local _, n = cmake:gsub("add_subdirectory%(contests/week_1%)", "")
+  eq(n, 1, "duplicate CMake entry")
+
+  local outside = util.join(tmp, "..", "outside_parse_contest")
+  local result, err = generator.scaffold(outside, { "a" }, {
+    project_root = tmp,
+    subdirectory_mode = "append",
+  })
+  truthy(not result, "out-of-root path accepted")
+  contains(err, "inside its CMake project root", "out-of-root validation")
+  truthy(not util.exists(outside), "invalid directory was created")
 end
 
 -- Incoming samples use the original gen.py data layout.
