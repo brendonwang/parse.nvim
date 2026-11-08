@@ -203,7 +203,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 add_executable(Round_123a a.cpp)
 ```
 
-Each generated problem directory keeps its own `CMakeLists.txt`. The handler root `CMakeLists.txt` points at the current problem directory with `add_subdirectory(...)`; parse.nvim replaces the most recent active `add_subdirectory(...)` entry instead of appending one on every import. If CMake is installed, the plugin configures that root project into `<root>/out` and publishes compile commands to the configured base directory for clangd.
+Each generated problem directory keeps its own `CMakeLists.txt`. For incoming problem imports, the handler root `CMakeLists.txt` points at the latest problem directory with `add_subdirectory(...)`, replacing the most recent active entry. For `:ParseContest --dir`, the `base_dir` CMake project instead **adds** each contest subdirectory without removing existing ones. If CMake is installed, the plugin configures the selected root project into `<root>/out` and publishes compile commands to the configured base directory for clangd.
 
 CMake target names are sanitized automatically. You can customize them before sanitization:
 
@@ -238,7 +238,19 @@ and adds the file to CMake through the existing project-generation workflow.
 
 ## Contest scaffolding
 
-`:ParseContest` creates source files and CMake targets in the current buffer's directory. It uses the active handler's template convention (`usaco` gets the USACO template; everything else defaults to the CF template).
+`:ParseContest` creates source files and CMake targets. Without `--dir`, it
+uses the current buffer's directory (or the working directory for an unnamed
+buffer), preserving the original behavior. It uses the active handler's
+template (`usaco` for USACO, `cf` otherwise).
+
+To put the contest in a **specific directory**, use `--dir` (or `-d`).
+Relative paths resolve from `base_dir` / `BASE_DIR`, not from the current
+buffer. Absolute paths are accepted inside the base directory. The command
+creates the destination and its own `CMakeLists.txt`, then registers it in
+`<base_dir>/CMakeLists.txt` with `add_subdirectory(...)`. Existing subdirectory
+entries remain intact, and rerunning the command does not create duplicates.
+If no base directory is configured, the current buffer's directory is used
+as the CMake project root.
 
 Examples:
 
@@ -249,9 +261,13 @@ Examples:
 :ParseContest first:10
 :ParseContest a b c d e
 :ParseContest a,c,e-g
+:ParseContest --dir contests/round_123 a-f
+:ParseContest a-f --dir contests/round_124
+:ParseContest -d contests/round_125 first 10
 ```
 
-`10` means the first ten alphabetic problem names: `a` through `j`. Counts beyond 26 continue as `aa`, `ab`, etc.
+`10` means the first ten alphabetic problem names: `a` through `j`.
+Counts beyond 26 continue as `aa`, `ab`, etc.
 
 ## Payload inspection
 
@@ -291,7 +307,7 @@ and then uses its bundled fallback templates.
 :ParseStop
 :ParseStatus
 :ParseLast
-:ParseContest <names|range|count>
+:ParseContest [--dir path] <names|range|count>
 :ParseNew [cf|usaco] [name]
 ```
 
