@@ -45,8 +45,16 @@ COMMANDS                                                   *parse.nvim-commands*
               :ParseNew usaco gates.cpp
               :ParseNew cf
 
-:ParseContest <names|range|count>
+:ParseContest [--dir path] <names|range|count>                  *:ParseContest*
     Create sources and CMake targets from names, a range (a-f), or a count (10).
+    Without --dir, use the current buffer's directory. With --dir (or -d),
+    use a directory relative to base_dir / BASE_DIR, or an absolute directory
+    inside that base. Create its CMakeLists.txt and register it in the base
+    CMakeLists.txt with add_subdirectory(), preserving existing entries.
+
+    Examples: :ParseContest a-f
+              :ParseContest --dir contests/round_123 a-f
+              :ParseContest first 10 --dir classes/week_1
 
 :ParseLast
     Inspect the most recently received payload in a scratch buffer.

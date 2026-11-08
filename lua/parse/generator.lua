@@ -111,7 +111,7 @@ local function cmake_path_arg(path)
   return path
 end
 
-local function update_root_subdirectory(path, problem_dir, project_root)
+local function update_root_subdirectory(path, problem_dir, project_root, mode)
   local relative = relative_to_root(project_root, problem_dir)
   if relative == nil then
     return nil, "problem directory is outside its CMake root"
@@ -124,6 +124,18 @@ local function update_root_subdirectory(path, problem_dir, project_root)
   local content, err = util.read_file(path)
   if not content then
     return nil, err
+  end
+
+  -- Keep all explicitly chosen contests registered. Existing handler imports
+  -- retain the previous behavior of selecting one active subdirectory.
+  if mode == "append" then
+    for _, line in ipairs(vim.split(content, "\n", { plain = true })) do
+      if not line:match("^%s*#") and vim.trim(line) == wanted then
+        return true
+      end
+    end
+    local separator = content ~= "" and content:sub(-1) ~= "\n" and "\n" or ""
+    return util.write_file(path, content .. separator .. wanted .. "\n")
   end
 
   local lines = vim.split(content, "\n", { plain = true })
@@ -199,7 +211,7 @@ local function ensure_root_cmake(spec, problem_dir)
     end
   end
 
-  local ok, err = update_root_subdirectory(path, problem_dir, project_root)
+  local ok, err = update_root_subdirectory(path, problem_dir, project_root, spec.subdirectory_mode)
   if not ok then
     return nil, nil, err
   end
@@ -453,10 +465,19 @@ function M.scaffold(problem_dir, names, opts)
   end
 
   problem_dir = util.expand(problem_dir)
+  local root, cur
+  if opts.project_root then
+    root = util.expand(opts.project_root)
+    cur = relative_to_root(root, problem_dir)
+    if cur == nil then
+      return nil, "contest directory must be inside its CMake project root: " .. root
+    end
+  else
+    root = vim.fs.dirname(problem_dir)
+    cur = vim.fs.basename(problem_dir)
+  end
   util.mkdir(problem_dir)
 
-  local root = vim.fs.dirname(problem_dir)
-  local cur = vim.fs.basename(problem_dir)
   local results = {}
   for _, name in ipairs(names) do
     local result, err = generate_one({
@@ -466,6 +487,7 @@ function M.scaffold(problem_dir, names, opts)
       template = opts.template or "cf",
       handler = "scaffold",
       judge = "scaffold",
+      subdirectory_mode = opts.subdirectory_mode,
     })
     if not result then
       return nil, err
